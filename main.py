@@ -8,30 +8,45 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.filters import CommandStart, Command
 from aiogram.types import Message
+from aiogram.utils.keyboard import InlineKeyboardBuilder, ReplyKeyboardBuilder
 
+import sqlite3
+
+con = sqlite3.connect('schedule.bd')
+con.cursor()    
 # Bot token can be obtained via https://t.me/BotFather
 TOKEN = getenv("8443997188:AAG4NphJAlYCRrgELAmq-WsL4xmyoQBYBMM")
-
-# All handlers should be attached to the Router (or Dispatcher)
 
 dp = Dispatcher()
 
 kb = [
         [types.KeyboardButton(text="Ознакомиться с правилами")],
-        [types.KeyboardButton(text="Я ознакомился с правилами")]
+        [types.KeyboardButton(text="С правилами ознакомлен")]
     ]
+
 
 @dp.message(Command('start'))
 async def cmd_start(message: types.Message):
-    keyboard = types.ReplyKeyboardMarkup(keyboard=kb)
+    keyboard = types.ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True)
     await message.answer(f"Привет, {message.from_user.full_name}!\n\nЭто бот для занятия очереди на стирку факультета ИИР\n\nПеред началом работы с ботом ознакомься с правилами пользования прачечной", reply_markup=keyboard)
     
 
 @dp.message(F.text.lower() == 'ознакомиться с правилами')
 async def pravila(message: Message):
-    await message.reply('НЕЛЬЗЯ ПИХАТЬ ХУЙ В СТИРАЛКУ!')
+    await message.answer(
+        'НЕЛЬЗЯ ПИХАТЬ ХУЙ В СТИРАЛКУ!',
+        reply_markup=types.ReplyKeyboardRemove()
+    )
     
-
+    builder = ReplyKeyboardBuilder()
+    builder.add(
+        types.KeyboardButton(text='С правилами ознакомлен')
+    )
+    
+    await message.answer(
+        "Нажмите кнопку для согласия:",
+        reply_markup=builder.as_markup(resize_keyboard=True)
+    )
 
 
 @dp.message()

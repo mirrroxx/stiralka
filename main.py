@@ -12,8 +12,8 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder, ReplyKeyboardBuilder
 
 import sqlite3
 
-con = sqlite3.connect('schedule.bd')
-con.cursor()    
+con = sqlite3.connect('students.db')
+cursor = con.cursor()   
 # Bot token can be obtained via https://t.me/BotFather
 TOKEN = getenv("8443997188:AAG4NphJAlYCRrgELAmq-WsL4xmyoQBYBMM")
 
@@ -34,7 +34,7 @@ async def cmd_start(message: types.Message):
 @dp.message(F.text.lower() == 'ознакомиться с правилами')
 async def pravila(message: Message):
     await message.answer(
-        'НЕЛЬЗЯ ПИХАТЬ ХУЙ В СТИРАЛКУ!',
+        '***СПИСОК НЕВЕРОТЯНО ВАЖЫНХ ПАРВИЛ!',
         reply_markup=types.ReplyKeyboardRemove()
     )
     
@@ -52,10 +52,9 @@ async def pravila(message: Message):
 @dp.message(F.text.lower() == 'с правилами ознакомлен')
 async def registration(message: Message):
     user_id = message.from_user.id
-    # with open("users.txt") as users_baze:
-    #     if user_id not in users_baze.read():
-    #         users_baze += user_id
-    # users_baze.close()
+    user_data = cursor.execute("SELECT * FROM users WHERE user_id=?", (user_id,))
+    if user_data.fetchone()[0] != 1:
+        await message.answer(text='Ваше имя?')
     
 
 @dp.message()

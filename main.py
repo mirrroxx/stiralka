@@ -38,32 +38,37 @@ async def pravila(message: Message):
         reply_markup=types.ReplyKeyboardRemove()
     )
     
-    builder = ReplyKeyboardBuilder()
+    builder = InlineKeyboardBuilder()
     builder.add(
-        types.KeyboardButton(text='С правилами ознакомлен')
+        types.InlineKeyboardButton(text='С правилами ознакомлен', callback_data='С правилами ознакомлен'),
     )
     
     await message.answer(
         "Нажмите кнопку для согласия:",
-        reply_markup=builder.as_markup(resize_keyboard=True)
+        reply_markup=builder.as_markup()
     )
-
+    
+    
+@dp.message(F.text.lower() == 'с правилами ознакомлен')
+async def registration(message: Message):
+    user_id = message.from_user.id
+    # with open("users.txt") as users_baze:
+    #     if user_id not in users_baze.read():
+    #         users_baze += user_id
+    # users_baze.close()
+    
 
 @dp.message()
 async def echo_handler(message: Message) -> None:
     try:
-        # Send a copy of the received message
         await message.send_copy(chat_id=message.chat.id)
     except TypeError:
-        # But not all the types is supported to be copied so need to handle it
         await message.answer("Nice try!")
 
 
 async def main() -> None:
-    # Initialize Bot instance with default bot properties which will be passed to all API calls
     bot = Bot(token='8443997188:AAG4NphJAlYCRrgELAmq-WsL4xmyoQBYBMM', default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 
-    # And the run events dispatching
     await dp.start_polling(bot)
 
 

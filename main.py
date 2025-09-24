@@ -3,60 +3,95 @@ import logging
 import sys
 from os import getenv
 
-from aiogram import Bot, Dispatcher, html, types, F
+from aiogram import Bot, Dispatcher, html, types, F, fsm, Router
+from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
+from aiogram.fsm.context import FSMContext
+from aiogram.filters.state import State, StatesGroup
 from aiogram.filters import CommandStart, Command
-from aiogram.types import Message
+from aiogram.types import Message, ReplyKeyboardRemove
 from aiogram.utils.keyboard import InlineKeyboardBuilder, ReplyKeyboardBuilder
+from aiogram.utils.chat_action import ChatActionSender
+from contextlib import contextmanager
 
 import sqlite3
+from aiogram.fsm.storage.redis import RedisStorage
 
-con = sqlite3.connect('students.db')
-cursor = con.cursor()   
-# Bot token can be obtained via https://t.me/BotFather
-TOKEN = getenv("8443997188:AAG4NphJAlYCRrgELAmq-WsL4xmyoQBYBMM")
+bot = Bot(token='8443997188:AAG4NphJAlYCRrgELAmq-WsL4xmyoQBYBMM', default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 
-dp = Dispatcher()
+storage = MemoryStorage()
+dp = Dispatcher(storage=storage)
 
-kb = [
-        [types.KeyboardButton(text="Ознакомиться с правилами")],
-        [types.KeyboardButton(text="С правилами ознакомлен")]
-    ]
 
+class Form(StatesGroup):
+    name = State()
+    surname = State()
+
+
+@contextmanager
+def connect_to_bd():
+    con = None
+    try:
+        con = sqlite3.connect('students.db')
+        yield con
+    except sqlite3.Error as e:
+        print(f'Ошибка подключения к бд: {e}')
+        raise
+    finally:
+        if con:
+            con.close()
+    
+    
+def get_user(user_id):
+    with connect_to_bd() as con:
+        cursor = con.cursor()
+        user_info = cursor.execute("SELECT * FROM users WHERE user_id=?", (user_id,)).fetchone()
+    # if user_info[-1] != 0:
+    #     return True
+    # return False
+
+
+def add_user(user_id, user_name, user_secondname, user_room, is_autorised):
+    with connect_to_bd() as con:
+        cursor = con.cursor()
+        cursor.execute("INSERT INTO users (user_id, user_name, user_secondname, user_room, is_autorised) VALUES (?, ?, ?, ?, ?)", (user_id, user_name, user_secondname, user_room, is_autorised))
+        con.commit()
+    
 
 @dp.message(Command('start'))
 async def cmd_start(message: types.Message):
-    keyboard = types.ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True)
-    await message.answer(f"Привет, {message.from_user.full_name}!\n\nЭто бот для занятия очереди на стирку факультета ИИР\n\nПеред началом работы с ботом ознакомься с правилами пользования прачечной", reply_markup=keyboard)
-    
-
-@dp.message(F.text.lower() == 'ознакомиться с правилами')
-async def pravila(message: Message):
-    await message.answer(
-        '***СПИСОК НЕВЕРОТЯНО ВАЖЫНХ ПАРВИЛ!',
-        reply_markup=types.ReplyKeyboardRemove()
-    )
-    
-    builder = InlineKeyboardBuilder()
-    builder.add(
-        types.InlineKeyboardButton(text='С правилами ознакомлен', callback_data='С правилами ознакомлен'),
-    )
-    
-    await message.answer(
-        "Нажмите кнопку для согласия:",
-        reply_markup=builder.as_markup()
-    )
+    is_autorised = get_user(message.from_user.id)
+    if is_autorised is True:
+        await message.answer('вы зарегистрированы')
+    else:
+        kb = [
+            [types.KeyboardButton(text="С правилами ознакомлен")]
+        ]
+        keyboard = types.ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True)
+        await message.answer(f"Привет, {message.from_user.full_name}!\n\nЭто бот для занятия очереди на стирку факультета ИИР\n\nПеред началом работы с ботом ознакомься с правилами пользования прачечной\n\n***СПИСОК НЕВЕРОТЯНО ВАЖЫНХ ПРАВИЛ!", reply_markup=keyboard)
     
     
 @dp.message(F.text.lower() == 'с правилами ознакомлен')
-async def registration(message: Message):
-    user_id = message.from_user.id
-    user_data = cursor.execute("SELECT * FROM users WHERE user_id=?", (user_id,))
-    if user_data.fetchone()[0] != 1:
-        await message.answer(text='Ваше имя?')
+async def registration(message: Message, state=FSMContext):
+    await message.answer('Теперь нужно зарегистрироваться в системе:\n\nНапишите ваше имя:', reply_markup=ReplyKeyboardRemove())
+    await state.set_state(Form.name)
     
 
+@dp.message(F.text, Form.name)
+async def capture_name(message: Message, state: FSMContext):
+    await state.update_data(name=message.text)
+    await message.answer(f"Отлично, {message.text}, теперь укажите свою фамилию: ")
+    await state.set_state(Form.surname)
+    
+    
+@dp.message(F.text, Form.surname)
+async def capture_surname(message: Message, state: FSMContext):
+    data = await state.get_data()
+    await state.update_data(surname=message.text)
+    await message.answer(f"Вас зовут {data['name']} {message.text}, верно?")
+
+    
 @dp.message()
 async def echo_handler(message: Message) -> None:
     try:
@@ -72,5 +107,6 @@ async def main() -> None:
 
 
 if __name__ == "__main__":
+    dp.start_polling(dp)
     logging.basicConfig(level=logging.INFO, stream=sys.stdout)
     asyncio.run(main())

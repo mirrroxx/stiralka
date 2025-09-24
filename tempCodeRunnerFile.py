@@ -1,1 +1,1 @@
-user_data = cursor.execute("SELECT * FROM users WHERE user_id=(?)", user_id)
+filters

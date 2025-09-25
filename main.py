@@ -63,7 +63,18 @@ def add_user(user_id, user_name, user_secondname, user_room, is_autorised):
 async def cmd_start(message: types.Message):
     is_autorised = get_user(message.from_user.id)
     if is_autorised is True:
-        await message.answer('вы зарегистрированы')
+        builder = InlineKeyboardBuilder()
+        builder.row(
+            types.InlineKeyboardButton(text='Понедельник', callback_data='monday'),
+            types.InlineKeyboardButton(text='Вторник', callback_data='tuesday'),
+            types.InlineKeyboardButton(text='Среда', callback_data='wednesday'),
+            types.InlineKeyboardButton(text='Четверг', callback_data='thursday'),
+            types.InlineKeyboardButton(text='Пятница', callback_data='friday'),
+            types.InlineKeyboardButton(text='Суббота', callback_data='saturday'),
+            types.InlineKeyboardButton(text='Воскресенье', callback_data='sunday'),
+            width=1
+        )
+        await message.answer('Выберите день недели: ', reply_markup=builder.as_markup())
     else:
         kb = [
             [types.KeyboardButton(text="С правилами ознакомлен")]
@@ -74,8 +85,10 @@ async def cmd_start(message: types.Message):
     
 @dp.message(F.text.lower() == 'с правилами ознакомлен')
 async def registration(message: Message, state=FSMContext):
-    await message.answer('Теперь нужно зарегистрироваться в системе:\n\nНапишите ваше имя:', reply_markup=ReplyKeyboardRemove())
-    await state.set_state(Form.name)
+    is_autorised = get_user(message.from_user.id)
+    if is_autorised is False:
+        await message.answer('Теперь нужно зарегистрироваться в системе:\n\nНапишите ваше имя:', reply_markup=ReplyKeyboardRemove())
+        await state.set_state(Form.name)
     
 
 @dp.message(F.text, Form.name)

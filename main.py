@@ -47,9 +47,9 @@ def get_user(user_id):
     with connect_to_bd() as con:
         cursor = con.cursor()
         user_info = cursor.execute("SELECT * FROM users WHERE user_id=?", (user_id,)).fetchone()
-    # if user_info[-1] != 0:
-    #     return True
-    # return False
+    if user_info[-1] == 1:
+        return True
+    return False
 
 
 def add_user(user_id, user_name, user_secondname, user_room, is_autorised):
@@ -87,11 +87,28 @@ async def capture_name(message: Message, state: FSMContext):
     
 @dp.message(F.text, Form.surname)
 async def capture_surname(message: Message, state: FSMContext):
+    kb = [
+        [types.InlineKeyboardButton(text='✅Все верно', callback_data='correct')],
+        [types.InlineKeyboardButton(text='❌Заполнить сначала', callback_data='uncorrect')]
+    ]
+    keyboard = types.InlineKeyboardMarkup(inline_keyboard=kb)
     data = await state.get_data()
     await state.update_data(surname=message.text)
-    await message.answer(f"Вас зовут {data['name']} {message.text}, верно?")
+    await message.answer(f"Вас зовут {data['name']} {message.text}, верно?", reply_markup=keyboard)
 
-    
+
+@dp.callback_query(F.data == 'correct')
+async def correct(message: Message, state: FSMContext):
+    with connect_to_bd() as con:
+        data = await state.get_data()
+        cursor = con.cursor()
+        check_user = cursor.execute("SELECT * FROM users WHERE user_name=? AND user_secondname=?", (data['name'], data['surname'])).fetchone()
+        if check_user == None:
+            add_user(message.from_user.id, data['name'], data['surname'], 52, 1)
+        else:
+            await message.answer('Данный пользователь уже зарегистрирован в системе под другим аккаунтом, для разрешения ситуации пишите сюда: @mirroxxx')
+
+
 @dp.message()
 async def echo_handler(message: Message) -> None:
     try:

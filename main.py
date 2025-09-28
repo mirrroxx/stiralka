@@ -64,18 +64,7 @@ def add_user(user_id, user_name, user_secondname, user_room, is_autorised):
 async def cmd_start(message: types.Message):
     is_autorised = get_user(message.from_user.id)
     if is_autorised is True:
-        builder = InlineKeyboardBuilder()
-        builder.row(
-            types.InlineKeyboardButton(text='Понедельник', callback_data='monday'),
-            types.InlineKeyboardButton(text='Вторник', callback_data='tuesday'),
-            types.InlineKeyboardButton(text='Среда', callback_data='wednesday'),
-            types.InlineKeyboardButton(text='Четверг', callback_data='thursday'),
-            types.InlineKeyboardButton(text='Пятница', callback_data='friday'),
-            types.InlineKeyboardButton(text='Суббота', callback_data='saturday'),
-            types.InlineKeyboardButton(text='Воскресенье', callback_data='sunday'),
-            width=1
-        )
-        await message.answer('Выберите день недели: ', reply_markup=builder.as_markup())
+        await show_days_keyboard(message)
     else:
         kb = [
             [types.KeyboardButton(text="С правилами ознакомлен")]
@@ -83,6 +72,21 @@ async def cmd_start(message: types.Message):
         keyboard = types.ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True)
         await message.answer(f"Привет, {message.from_user.full_name}!\n\nЭто бот для занятия очереди на стирку факультета ИИР\n\nПеред началом работы с ботом ознакомься с правилами пользования прачечной\n\n***СПИСОК НЕВЕРОТЯНО ВАЖЫНХ ПРАВИЛ!", reply_markup=keyboard)
     
+
+async def show_days_keyboard(message: Message):
+    builder = InlineKeyboardBuilder()
+    builder.row(
+        types.InlineKeyboardButton(text='Понедельник', callback_data='monday'),
+        types.InlineKeyboardButton(text='Вторник', callback_data='tuesday'),
+        types.InlineKeyboardButton(text='Среда', callback_data='wednesday'),
+        types.InlineKeyboardButton(text='Четверг', callback_data='thursday'),
+        types.InlineKeyboardButton(text='Пятница', callback_data='friday'),
+        types.InlineKeyboardButton(text='Суббота', callback_data='saturday'),
+        types.InlineKeyboardButton(text='Воскресенье', callback_data='sunday'),
+        width=1
+    )
+    await message.answer('Выберите день недели для бронирования: ', reply_markup=builder.as_markup())
+
     
 @dp.message(F.text.lower() == 'с правилами ознакомлен')
 async def registration(message: Message, state=FSMContext):
@@ -113,10 +117,16 @@ async def capture_surname(message: Message, state: FSMContext):
 
 @dp.callback_query(F.data == 'incorrect')
 async def incorrect(callback: CallbackQuery, state: FSMContext):
-    await state.clear()
-    await callback.message.answer('Давайте попробуем еще!\n\n Напишите ваше имя: ')
-    await state.set_state(Form.name)
-    await callback.answer()
+    is_autorised = get_user(callback.from_user.id)
+    if is_autorised is False:
+        await state.clear()
+        new_text = 'Давайте попробуем еще!\n\nНапишите ваше имя: '
+        await callback.message.edit_text(new_text, reply_markup=None)
+        await state.set_state(Form.name)
+        await callback.answer()
+    else:
+        await callback.message.answer('Вы уже зарегистрированы!')
+        await callback.answer()
 
 
 @dp.callback_query(F.data == 'correct')
@@ -124,13 +134,15 @@ async def correct(callback: CallbackQuery, state: FSMContext):
     with connect_to_bd() as con:
         data = await state.get_data()
         cursor = con.cursor()
-        check_user = cursor.execute("SELECT * FROM users WHERE (user_name=? AND user_secondname=?) OR user_id=?", (data['name'], data['surname'], callback.from_user.id)).fetchall()
+        check_user = cursor.execute("SELECT * FROM users WHERE (user_name=? AND user_secondname=?) OR user_id=?", (data['name'], data['surname'], callback.from_user.id)).fetchone()
         if check_user == None:
             add_user(callback.from_user.id, data['name'], data['surname'], None, 1)
-            await callback.message.answer('Вы успешно зарегистрировались в боте, теперь вы можете начать им пользоваться!')
-            await cmd_start(callback.message)
+            new_text = 'Вы успешно зарегистрировались в боте, теперь вы можете начать им пользоваться!'
+            await callback.message.edit_text(new_text, reply_markup=None)
+            await show_days_keyboard(callback.message)
         else:
-            await callback.message.answer('Данный пользователь уже зарегистрирован в системе под другим аккаунтом, для разрешения ситуации пишите администратору(тг в описании бота)')
+            new_text = 'Данный пользователь уже зарегистрирован в системе под другим аккаунтом, для разрешения ситуации пишите администратору(тг в описании бота)'
+            await callback.message.edit_text(new_text, reply_markup=None)
         await state.clear()
         await callback.answer()
 

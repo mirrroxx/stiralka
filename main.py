@@ -27,6 +27,11 @@ dp = Dispatcher(storage=storage)
 class Form(StatesGroup):
     name = State()
     surname = State()
+    
+    
+class Schedule(StatesGroup):
+    day = State()
+    time = State()
 
 
 @contextmanager
@@ -58,34 +63,34 @@ def add_user(user_id, user_name, user_secondname, user_room, is_autorised):
         cursor = con.cursor()
         cursor.execute("INSERT INTO users (user_id, user_name, user_secondname, user_room, is_autorised) VALUES (?, ?, ?, ?, ?)", (user_id, user_name, user_secondname, user_room, is_autorised))
         con.commit()
+
+
+async def show_days_keyboard(message: Message, state: FSMContext):
+    builder = InlineKeyboardBuilder()
+    builder.row(
+        types.InlineKeyboardButton(text='Понедельник', callback_data='Понедельник'),
+        types.InlineKeyboardButton(text='Вторник', callback_data='Вторник'),
+        types.InlineKeyboardButton(text='Четверг', callback_data='Четверг'),
+        types.InlineKeyboardButton(text='Пятница', callback_data='Пятница'),
+        types.InlineKeyboardButton(text='Суббота', callback_data='Суббота'),
+        types.InlineKeyboardButton(text='Воскресенье', callback_data='Воскресенье'),
+        width=1
+    )
+    await message.answer('Выберите день недели для бронирования: ', reply_markup=builder.as_markup())
+    await state.set_state(Schedule.time)
     
 
 @dp.message(Command('start'))
-async def cmd_start(message: types.Message):
+async def cmd_start(message: types.Message, state: FSMContext):
     is_autorised = get_user(message.from_user.id)
     if is_autorised is True:
-        await show_days_keyboard(message)
+        await show_days_keyboard(message, state)
     else:
         kb = [
             [types.KeyboardButton(text="С правилами ознакомлен")]
         ]
         keyboard = types.ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True)
         await message.answer(f"Привет, {message.from_user.full_name}!\n\nЭто бот для занятия очереди на стирку факультета ИИР\n\nПеред началом работы с ботом ознакомься с правилами пользования прачечной\n\n***СПИСОК НЕВЕРОТЯНО ВАЖЫНХ ПРАВИЛ!", reply_markup=keyboard)
-    
-
-async def show_days_keyboard(message: Message):
-    builder = InlineKeyboardBuilder()
-    builder.row(
-        types.InlineKeyboardButton(text='Понедельник', callback_data='monday'),
-        types.InlineKeyboardButton(text='Вторник', callback_data='tuesday'),
-        types.InlineKeyboardButton(text='Среда', callback_data='wednesday'),
-        types.InlineKeyboardButton(text='Четверг', callback_data='thursday'),
-        types.InlineKeyboardButton(text='Пятница', callback_data='friday'),
-        types.InlineKeyboardButton(text='Суббота', callback_data='saturday'),
-        types.InlineKeyboardButton(text='Воскресенье', callback_data='sunday'),
-        width=1
-    )
-    await message.answer('Выберите день недели для бронирования: ', reply_markup=builder.as_markup())
 
     
 @dp.message(F.text.lower() == 'с правилами ознакомлен')
@@ -139,13 +144,42 @@ async def correct(callback: CallbackQuery, state: FSMContext):
             add_user(callback.from_user.id, data['name'], data['surname'], None, 1)
             new_text = 'Вы успешно зарегистрировались в боте, теперь вы можете начать им пользоваться!'
             await callback.message.edit_text(new_text, reply_markup=None)
-            await show_days_keyboard(callback.message)
+            await show_days_keyboard(callback.message, state)
         else:
             new_text = 'Данный пользователь уже зарегистрирован в системе под другим аккаунтом, для разрешения ситуации пишите администратору(тг в описании бота)'
             await callback.message.edit_text(new_text, reply_markup=None)
         await state.clear()
         await callback.answer()
+        
 
+@dp.callback_query(Schedule.time)
+async def appointment_day(callback: CallbackQuery, state: FSMContext):
+    await state.update_data(day=callback.data)
+    time = [((8, 0), (8, 35)), ((8, 35), (9, 10)), ((9, 10), (9, 45)), ((9, 45), (10, 20)), ((10, 20), (10, 55)), ((10, 55), (11, 30)), ((11, 30), (12, 5)), ((12, 5), (12, 40)), ((12, 40), (13, 15)), ((13, 15), (13, 50)), ((13, 50), (14, 25)), ((14, 25), (15, 0)), ((15, 0), (15, 35)), ((15, 35), (16, 10)), ((16, 10), (16, 45)), ((16, 45), (17, 20)), ((17, 20), (17, 55)), ((17, 55), (18, 30)), ((18, 30), (19, 5)), ((19, 5), (19, 40))]
+    builder = InlineKeyboardBuilder()
+    for i, (start, finish) in enumerate(time): 
+        builder.button(text=f"{start[0]}:{start[1]:02d}-{finish[0]}:{finish[1]:02d}", callback_data=f"time_{start[0]}:{start[1]}")
+    builder.adjust(1)
+    await callback.message.edit_text(
+        f"Выберите время для записи:",
+        reply_markup=builder.as_markup()
+    )
+    await callback.answer()
+    
+
+@dp.callback_query(F.data.startswith("time_"))
+async def capture_time(callback: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    day = data['day']
+    time = callback.data
+    await callback.message.answer(
+        f"✅ Вы успешно записались на {day}, {time}",
+    )
+    
+    # Очищаем состояние
+    await state.clear()
+    await callback.answer()
+    
 
 @dp.message()
 async def echo_handler(message: Message) -> None:

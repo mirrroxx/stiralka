@@ -1,4 +1,11 @@
-from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram import Dispatcher
-
-dp = Dispatcher(storage=MemoryStorage())
+time = []
+left = 8
+right = 0
+for i in range(20):
+    time.append((left, right))
+    right += 35
+    if right >= 60:
+        left += 1
+        right -= 60
+    time.append((left, right))
+print(time)

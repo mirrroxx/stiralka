@@ -2,6 +2,7 @@ import asyncio
 import logging
 import sys
 from os import getenv
+from datetime import datetime, timedelta
 
 from aiogram import Bot, Dispatcher, html, types, F, fsm, Router
 from aiogram.fsm.storage.memory import MemoryStorage
@@ -37,28 +38,23 @@ class Schedule(StatesGroup):
     time = State()
 
 
-# Утилита для безопасного редактирования сообщений
 async def safe_edit_message(message: types.Message, new_text: str, reply_markup=None, parse_mode=None):
     """Безопасно редактирует сообщение, обрабатывая ошибку 'message not modified'"""
     try:
         await message.edit_text(new_text, reply_markup=reply_markup, parse_mode=parse_mode)
     except TelegramBadRequest as e:
         if "message is not modified" in str(e):
-            # Игнорируем эту ошибку - сообщение уже имеет нужный контент
             logging.info("Message wasn't modified (no changes detected)")
         else:
-            # Пробрасываем другие ошибки
             raise e
 
 
-# Утилита для безопасного редактирования в callback queries
 async def safe_edit_callback_message(callback: CallbackQuery, new_text: str, reply_markup=None, parse_mode=None):
     """Безопасно редактирует сообщение из callback query"""
     try:
         await callback.message.edit_text(new_text, reply_markup=reply_markup, parse_mode=parse_mode)
     except TelegramBadRequest as e:
         if "message is not modified" in str(e):
-            # Игнорируем эту ошибку
             logging.info("Message wasn't modified (no changes detected)")
         else:
             raise e
@@ -174,14 +170,13 @@ async def correct(callback: CallbackQuery, state: FSMContext):
         if check_user is None:
             add_user(callback.from_user.id, data['name'], data['surname'], None, 1)
             new_text = 'Вы успешно зарегистрировались в боте, теперь вы можете начать им пользоваться!'
-            # Используем безопасное редактирование
             await safe_edit_callback_message(callback, new_text, reply_markup=None)
+            await state.clear()
             await show_days_keyboard(callback.message, state)
         else:
             new_text = 'Данный пользователь уже зарегистрирован в системе под другим аккаунтом, для разрешения ситуации пишите администратору(тг в описании бота)'
-            # Используем безопасное редактирование
             await safe_edit_callback_message(callback, new_text, reply_markup=None)
-        await state.clear()
+            await state.clear()
         await callback.answer()
 
 
@@ -189,7 +184,6 @@ async def correct(callback: CallbackQuery, state: FSMContext):
 async def appointment_day(callback: CallbackQuery, state: FSMContext):
     await state.update_data(day=callback.data)
     
-    # Создаем список временных интервалов
     time_slots = [
         ((8, 0), (8, 35)), ((8, 35), (9, 10)), ((9, 10), (9, 45)), 
         ((9, 45), (10, 20)), ((10, 20), (10, 55)), ((10, 55), (11, 30)), 
@@ -202,15 +196,13 @@ async def appointment_day(callback: CallbackQuery, state: FSMContext):
     
     builder = InlineKeyboardBuilder()
     for start, finish in time_slots: 
-        # Форматируем время для отображения
         display_text = f"{start[0]}:{start[1]:02d}-{finish[0]}:{finish[1]:02d}"
-        # Сохраняем полный интервал в callback_data
         callback_data = f"time_{start[0]}:{start[1]:02d}-{finish[0]}:{finish[1]:02d}"
         builder.button(text=display_text, callback_data=callback_data)
+    builder.button(text='⬅️ Назад', callback_data='back')
     
     builder.adjust(1)
     
-    # Используем безопасное редактирование
     await safe_edit_callback_message(
         callback,
         f"Выберите время для записи на {callback.data}:",
@@ -222,19 +214,15 @@ async def appointment_day(callback: CallbackQuery, state: FSMContext):
 
 @dp.callback_query(Schedule.time, F.data.startswith("time_"))
 async def capture_time(callback: CallbackQuery, state: FSMContext):
-    # Получаем данные из состояния
     data = await state.get_data()
     day = data.get('day', 'неизвестный день')
     
-    # Извлекаем временной интервал из callback_data
     time_slot = callback.data.replace("time_", "")
     
-    # Форматируем вывод времени (убираем ведущие нули если нужно)
     time_parts = time_slot.split('-')
     start_time = time_parts[0]
     end_time = time_parts[1]
     
-    # Убираем ведущие нули для более красивого отображения
     start_time = start_time.replace(':00', ':0').replace(':0', '') if ':0' in start_time else start_time
     end_time = end_time.replace(':00', ':0').replace(':0', '') if ':0' in end_time else end_time
     
@@ -245,16 +233,14 @@ async def capture_time(callback: CallbackQuery, state: FSMContext):
     
     kb = InlineKeyboardMarkup(inline_keyboard=buttons)
 
-    # УДАЛЯЕМ сообщение с выбором времени (редактируем его, убирая клавиатуру)
     await safe_edit_callback_message(
         callback,
         f"⌛ Выбрано время: {start_time}-{end_time}\n"
         f"📅 День: {day}\n\n"
         f"✅ Подтвердите запись ниже 👇",
-        reply_markup=None  # Убираем клавиатуру с выбором времени
+        reply_markup=None
     )
     
-    # Отправляем новое сообщение с подтверждением
     await callback.message.answer(
         f"🤔 Вы хотите записаться на:\n"
         f"📅 День: {day}\n"
@@ -265,33 +251,32 @@ async def capture_time(callback: CallbackQuery, state: FSMContext):
     await state.clear()
     await callback.answer()
     
+    
+@dp.callback_query(F.data=='back')
+async def go_back(callback: CallbackQuery, state: FSMContext):
+    await callback.message.edit_text('Возвращаемся назад...', reply_markup=None)
+    await show_days_keyboard(callback.message, state)
+
 
 @dp.callback_query(F.data.in_(['yes', 'no']))
 async def handle_confirm(callback: CallbackQuery, state: FSMContext):
     if callback.data == 'yes':
-        await callback.message.edit_text(
-            f"✅ Запись подтверждена, хорошей стирки!\n",
-            reply_markup=None
-        )
+        with connect_to_bd() as con:
+            cursor = con.cursor()
+            
+            await callback.message.edit_text(
+                f"✅ Запись подтверждена, хорошей стирки!\n",
+                reply_markup=None
+            )
     else:
-        # При отмене возвращаемся к выбору дня
         await callback.message.edit_text(
             "❌ Запись отменена\n\nВыберите день заново:",
             reply_markup=None
         )
         
-        # Показываем клавиатуру с днями
         await show_days_keyboard(callback.message, state)
     
     await callback.answer()
-
-
-@dp.message()
-async def echo_handler(message: Message) -> None:
-    try:
-        await message.send_copy(chat_id=message.chat.id)
-    except TypeError:
-        await message.answer("Nice try!")
 
 
 async def main() -> None:

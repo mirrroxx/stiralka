@@ -37,7 +37,7 @@ class Schedule(StatesGroup):
     day = State()
     time = State()
 
-
+            
 async def safe_edit_message(message: types.Message, new_text: str, reply_markup=None, parse_mode=None):
     """Безопасно редактирует сообщение, обрабатывая ошибку 'message not modified'"""
     try:
@@ -89,9 +89,30 @@ def add_user(user_id, user_name, user_secondname, user_room, is_autorised):
         cursor = con.cursor()
         cursor.execute("INSERT INTO users (user_id, user_name, user_secondname, user_room, is_autorised) VALUES (?, ?, ?, ?, ?)", (user_id, user_name, user_secondname, user_room, is_autorised))
         con.commit()
+        
+        
+class Rent:
+    def __init__(self, user_id):
+        self.user_id = user_id
+        
+    def check_zapis(self, date, time):
+        with connect_to_bd() as con:
+            cursor = con.cursor()
+            zapis = cursor.execute("SELECT * FROM schedule WHERE data=? AND time=?", (date, time)).fetchone()
+            return zapis
+    
+    def take_time(self, date, time):
+        with connect_to_bd() as con:
+            cursor = con.cursor()
+            proverka = self.check_zapis(date, time)
+            if proverka == None:
+                cursor.execute("INSERT INTO schedule (user_id, data, time) VALUES (?, ?, ?)", (self.user_id, date, time))
+                con.commit()
 
 
 async def show_days_keyboard(message: Message, state: FSMContext):
+    today = datetime.now().weekday()
+    pass
     builder = InlineKeyboardBuilder()
     builder.row(
         types.InlineKeyboardButton(text='Понедельник', callback_data='Понедельник'),
@@ -152,7 +173,6 @@ async def incorrect(callback: CallbackQuery, state: FSMContext):
     if is_autorised is False:
         await state.clear()
         new_text = 'Давайте попробуем еще!\n\nНапишите ваше имя: '
-        # Используем безопасное редактирование
         await safe_edit_callback_message(callback, new_text, reply_markup=None)
         await state.set_state(Form.name)
         await callback.answer()
@@ -193,7 +213,7 @@ async def appointment_day(callback: CallbackQuery, state: FSMContext):
         ((16, 45), (17, 20)), ((17, 20), (17, 55)), ((17, 55), (18, 30)), 
         ((18, 30), (19, 5)), ((19, 5), (19, 40))
     ]
-    
+    time_now = datetime.now().time()
     builder = InlineKeyboardBuilder()
     for start, finish in time_slots: 
         display_text = f"{start[0]}:{start[1]:02d}-{finish[0]}:{finish[1]:02d}"
@@ -248,7 +268,7 @@ async def capture_time(callback: CallbackQuery, state: FSMContext):
         f"Не забудьте о своей записи!",
         reply_markup=kb
     )
-    await state.clear()
+    await state.update_data(time=callback.data)
     await callback.answer()
     
     
@@ -261,19 +281,31 @@ async def go_back(callback: CallbackQuery, state: FSMContext):
 @dp.callback_query(F.data.in_(['yes', 'no']))
 async def handle_confirm(callback: CallbackQuery, state: FSMContext):
     if callback.data == 'yes':
-        with connect_to_bd() as con:
-            cursor = con.cursor()
-            
+        data = await state.get_data()
+        day = data['day']
+        time = data['time'].lstrip('time_')
+        zapis = Rent(callback.from_user.id)
+        zapis.take_time(date=day, time=time)
+        check = zapis.check_zapis(date=day, time=time)
+        if check == None:
             await callback.message.edit_text(
                 f"✅ Запись подтверждена, хорошей стирки!\n",
                 reply_markup=None
             )
+            await state.clear()
+        else:
+            await callback.message.edit_text(
+                f"❌ Запись занята\n\nВыберите день заново:",
+                reply_markup=None
+            )
+            await state.clear()
+            await show_days_keyboard(callback.message, state)
     else:
         await callback.message.edit_text(
             "❌ Запись отменена\n\nВыберите день заново:",
             reply_markup=None
         )
-        
+        await state.clear()
         await show_days_keyboard(callback.message, state)
     
     await callback.answer()
